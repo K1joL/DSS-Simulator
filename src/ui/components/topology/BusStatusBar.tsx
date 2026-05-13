@@ -1,0 +1,1 @@
+export function BusStatusBar({ queueLength, queueBytes }: { queueLength: number; queueBytes?: number }) { return <div className="bus-shell"><div className="bus-line" /><div className="bus-label">Shared bus · queue {queueLength} pkts · {queueBytes ?? 0} bytes</div></div>; }
