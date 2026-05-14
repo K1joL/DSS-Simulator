@@ -137,6 +137,7 @@ export function useSimulation() {
   const preparedSnapshotsRef = useRef<any[]>([]);
   const preparedAggregateRef = useRef<any>(null);
   const cursorRef = useRef(0);
+  const resumeCursorRef = useRef<number | null>(null);
   const emittedEventsRef = useRef<Set<string>>(new Set());
 
   const [configState, setConfigState] = useState<any>(clone(defaultConfigV2));
@@ -184,7 +185,9 @@ export function useSimulation() {
     preparedResultRef.current = result;
     preparedSnapshotsRef.current = buildSnapshots(result);
     preparedAggregateRef.current = buildAggregate(result);
-    cursorRef.current = 0;
+    const maxCursor = Math.max(0, preparedSnapshotsRef.current.length - 1);
+    cursorRef.current = Math.min(resumeCursorRef.current ?? 0, maxCursor);
+    resumeCursorRef.current = null;
     emittedEventsRef.current = new Set();
   };
   const emitEventsUntil = (timeMs: number) => {
@@ -265,18 +268,25 @@ export function useSimulation() {
     setLogs([]);
     appendLog('Стенд сброшен');
   };
+  const updateScenarioWithResume = (updater: any, logMessage: string) => {
+    const resumeCursor = Math.max(0, state?.stepIndex ?? cursorRef.current ?? 0);
+    stopLoop();
+    clearPrepared();
+    resumeCursorRef.current = resumeCursor;
+    setConfigState((prev: any) => (typeof updater === 'function' ? updater(prev) : updater));
+    appendLog(logMessage, state?.nowMs ?? 0);
+  };
   const failVm = (vmId: string) => {
     const scheduledTime = state?.nowMs && state.nowMs < configState.durationMs ? state.nowMs : Math.max(configState.stepMs, Math.floor(configState.durationMs / 2));
-    setConfig((prev: any) => {
+    updateScenarioWithResume((prev: any) => {
       const next = clone(prev);
       next.failureModel.manualFailureVmId = vmId;
       next.failureModel.manualFailureTimeMs = scheduledTime;
       return next;
-    });
-    appendLog(`Запланирован отказ ${vmId} на ${scheduledTime} ms`, state?.nowMs ?? 0);
+    }, `Запланирован отказ ${vmId} на ${scheduledTime} ms`);
   };
   const recoverVm = (vmId: string) => {
-    setConfig((prev: any) => {
+    updateScenarioWithResume((prev: any) => {
       const next = clone(prev);
       if (next.failureModel.manualFailureVmId === vmId) {
         next.failureModel.manualFailureVmId = null;
@@ -285,8 +295,7 @@ export function useSimulation() {
       const vm = (next.vms ?? []).find((item: any) => item.id === vmId);
       if (vm) vm.enabled = true;
       return next;
-    });
-    appendLog(`Сценарий отказа для ${vmId} снят`, state?.nowMs ?? 0);
+    }, `Сценарий отказа для ${vmId} снят`);
   };
   return { config: configState, setConfig, state, aggregate, snapshots, logs, running, initialize, start, pause, step, reset, runToEnd, failVm, recoverVm };
 }
